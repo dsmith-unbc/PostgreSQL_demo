@@ -1,0 +1,133 @@
+---
+title: "PostgreSQL_code"
+format: html
+editor: visual
+---
+
+# PostgreSQL Database Demo
+
+This document contains instructions on how to setup use a PostgreSQL database
+
+### Load Required Packages
+
+```{r packages, echo = FALSE, include = F}
+
+packages <- c("dbplyr", "tidyverse", "readxl", "RPostgres",
+              "rpostgis", "RPostgreSQL", "rstudioapi")
+
+install.packages(setdiff(packages, rownames(installed.packages())))  
+
+invisible(lapply(packages,require,character.only = TRUE))
+
+rm(packages)
+
+```
+
+## Database Creation Instructions
+
+Use the file *Create_database_schemas.sql*
+
+Download and install **POSTGRESQL**, **PGAdmin 4**, and **Table Plus** (for viewing)
+
+-   Make sure to follow the steps in PGAdmin 4 carefully.
+
+-   You will be asked to set up passwords which you **NEED** to remember in the future.
+
+    -   These passwords are for your admin access *and* database access
+
+Create a new database in PGAdmin 4 called "demo_database"
+
+Right click on demo_database and select the Query tool from the drop down menu.Copy/paste all code from *Create_database_schemas.sql* into editor.
+
+Run editor and wait for database to be created prior to running code
+
+```{r connect_to_database}
+
+
+con <- dbConnect(RPostgres::Postgres(), 
+                dbname = "demo_database", 
+                user = "postgres",
+                password = askForPassword("Enter Password"), 
+                host = "localhost",
+                port = 5432)
+
+
+
+```
+
+# Preparing our data
+
+```{r , warning=F}
+
+demo_dat <- as.data.frame(read_xlsx("demo_data.xlsx", col_names = T))
+
+lab_super_dat <- data.frame( 
+  lab = c(
+    "FFEL",
+    "Avian Ecology Lab",
+    "Bird Cave",
+    "Poop lab"),
+  supervisor = c(
+    "Eduardo",
+    "Russ",
+    "Ken",
+    "Heather"
+  ))
+
+```
+
+# Inserting data into the database
+
+Note: Running the below code multiple times will insert the data multiple times into the database (creating duplicates). Must rerun .sql script to get rid of duplicates.
+
+An "if statement" can help solve the issue of duplicates but can get tedious when inserting data into many tables. Recommend only using in unique situations
+
+```{r , warning=F, include=F}
+
+
+if(dbGetQuery(con, "SELECT COUNT(*) FROM demo.demo_table") == 0){
+pgWriteGeom(conn = con, name = c("demo", "demo_table"), data.obj = demo_dat, geog = F)
+}
+
+if(dbGetQuery(con, "SELECT COUNT(*) FROM lookup.lab_supervisor") == 0){
+pgWriteGeom(conn = con, name = c("lookup", "lab_supervisor"), data.obj = lab_super_dat, geog = F)
+}
+
+# Calling your database with a Query is the most powerful and flexible approach. 
+
+db_query <- dbGetQuery(conn = con, " SELECT dem.name, dem.lab, dem.random_val FROM demo.demo_table AS dem WHERE dem.name = 'Devon'")
+
+# You can just call the entire table (see code below) but this can also be achieved with a query (eg. "SELECT * FROM demo.demo_table"). An * means all columns. 
+
+db_read <- dbReadTable(conn = con, name = Id(schema = "demo", table = "demo_table"))
+
+```
+
+# Complex Database Queries
+
+This query is more complex and shows the power of PostgreSQL when you want to pull specific data into a dataframe.
+
+In previous query "db_query" sex is represented as M, F, or Unk and no supervisor is related to the individual labs.
+
+If we combine statements from our lookup tables we can join specific columns from separate tables together into the exact table we wish to have as a resulting dataframe.
+
+```{r }
+db_complex_query <- dbGetQuery(conn = con, 
+                               "SELECT 
+                            			dem.name, 
+                            			dem.lab, 
+                            			dem.random_val,
+                            			sex.sex,
+                            			dem.gradstudent,
+                            			sup.supervisor
+                            		FROM demo.demo_table AS dem 
+                            		INNER JOIN lookup.sex AS sex
+                            		ON sex.sex_id = dem.sex
+                            		INNER JOIN lookup.lab_supervisor AS sup
+                            		ON sup.lab = dem.lab")
+
+#Code that allows you to disconnect from database
+
+dbDisconnect(con)
+
+```
