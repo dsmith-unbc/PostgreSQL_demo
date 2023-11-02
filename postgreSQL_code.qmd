@@ -13,7 +13,7 @@ This document contains instructions on how to setup use a PostgreSQL database
 ```{r packages, echo = FALSE, include = F}
 
 packages <- c("dbplyr", "tidyverse", "readxl", "RPostgres",
-              "rpostgis", "RPostgreSQL", "rstudioapi")
+              "rpostgis", "RPostgreSQL", "rstudioapi","sf")
 
 install.packages(setdiff(packages, rownames(installed.packages())))  
 
@@ -61,6 +61,9 @@ con <- dbConnect(RPostgres::Postgres(),
 
 demo_dat <- as.data.frame(read_xlsx("demo_data.xlsx", col_names = T))
 
+demo_sturg_dat <- as.data.frame(read_xlsx("fake_sturg_data.xlsx", 
+                                          col_names = T))
+
 lab_super_dat <- data.frame( 
   lab = c(
     "FFEL",
@@ -78,19 +81,21 @@ lab_super_dat <- data.frame(
 
 # Inserting data into the database
 
-Note: Running the below code multiple times will insert the data multiple times into the database (creating duplicates). Must rerun .sql script to get rid of duplicates.
+Note: If a PRIMARY KEY is not specified when making the database, then running the below code multiple times will insert the data multiple times into the database (creating duplicates). Must rerun .sql script to get rid of duplicates.
 
-An "if statement" can help solve the issue of duplicates but can get tedious when inserting data into many tables. Recommend only using in unique situations
+An "if statement" can help solve the issue of duplicates if a PRIMARY KEY is not used, but can get tedious when inserting data into many tables. Recommend only using in unique situations
 
 ```{r , warning=F, include=F}
 
+pgWriteGeom(conn = con, name = c("demo", "demo_table"), 
+            data.obj = demo_dat, geog = F)
 
-if(dbGetQuery(con, "SELECT COUNT(*) FROM demo.demo_table") == 0){
-pgWriteGeom(conn = con, name = c("demo", "demo_table"), data.obj = demo_dat, geog = F)
-}
+pgWriteGeom(conn = con, name = c("telemetry", "detections"), 
+            data.obj = demo_sturg_dat, geog = F)
 
 if(dbGetQuery(con, "SELECT COUNT(*) FROM lookup.lab_supervisor") == 0){
-pgWriteGeom(conn = con, name = c("lookup", "lab_supervisor"), data.obj = lab_super_dat, geog = F)
+pgWriteGeom(conn = con, name = c("lookup", "lab_supervisor"), 
+            data.obj = lab_super_dat, geog = F)
 }
 
 # Calling your database with a Query is the most powerful and flexible approach. 
@@ -100,6 +105,10 @@ db_query <- dbGetQuery(conn = con, " SELECT dem.name, dem.lab, dem.random_val FR
 # You can just call the entire table (see code below) but this can also be achieved with a query (eg. "SELECT * FROM demo.demo_table"). An * means all columns. 
 
 db_read <- dbReadTable(conn = con, name = Id(schema = "demo", table = "demo_table"))
+
+db_query_sturg <- dbGetQuery(conn = con, " SELECT datetime_utc, receiver, transmitter, station_name, lat, lon, geom, added_to_database FROM telemetry.detections") %>%
+    mutate(geom = st_as_sfc(geom)) %>%
+    st_as_sf()
 
 ```
 
