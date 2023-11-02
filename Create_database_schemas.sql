@@ -6,6 +6,39 @@ CREATE EXTENSION IF NOT EXISTS postgis;
 DROP SCHEMA IF EXISTS functions CASCADE;
 CREATE SCHEMA functions;
 
+CREATE OR REPLACE FUNCTION functions.create_geom_points()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+  DECLARE
+BEGIN
+
+IF NEW.lon IS NOT NULL AND NEW.lat IS NOT NULL THEN
+NEW.geom = ST_SetSRID(ST_MakePoint(NEW.lon, NEW.lat),4326);
+END IF;
+
+RETURN NEW;
+END;$function$
+;
+
+CREATE OR REPLACE FUNCTION functions.station_spatial_ops()
+ RETURNS trigger
+ LANGUAGE plpgsql
+AS $function$
+  DECLARE
+BEGIN
+
+IF NEW.lon IS NOT NULL AND NEW.lat IS NOT NULL THEN
+NEW.geom = ST_SetSRID(ST_MakePoint(NEW.lon, NEW.lat),4326);
+NEW.env_zone := (SELECT
+  z.zone
+FROM spatial.flow_zone AS z
+WHERE ST_Intersects(z.geom, ST_Transform(NEW.geom, 26911)));
+END IF;
+
+RETURN NEW;
+END;$function$;
+
 DROP SCHEMA IF EXISTS telemetry CASCADE;
 CREATE SCHEMA telemetry;
 
@@ -48,7 +81,7 @@ COMMENT ON COLUMN lookup.lab_supervisor.supervisor IS 'Supervisor of Lab';
 
 DROP TABLE IF EXISTS lookup.sex CASCADE;
 CREATE TABLE lookup.sex (
-  sex_id varchar,
+  sex_id varchar PRIMARY KEY,
   sex varchar);
 
 COMMENT ON TABLE lookup.sex IS 'Table to hold identification information about fish';
@@ -75,19 +108,25 @@ CREATE TABLE telemetry.detections (
   transmitter_type varchar,
   sensor_precision varchar,
   file varchar,
+  geom geometry(POINT, 4326),
   added_to_database timestamp with time zone DEFAULT now(),
-  id integer);
+  PRIMARY KEY (datetime_utc,receiver,transmitter));
 
 COMMENT ON COLUMN telemetry.detections.datetime_utc IS 'Timestamp in UTC';
 COMMENT ON COLUMN telemetry.detections.receiver IS 'Receiver ID number';
 COMMENT ON COLUMN telemetry.detections.transmitter IS 'Transmitter ID number';
+
+CREATE trigger detection_trigger_points before
+INSERT
+    ON
+    telemetry.detections for each row execute function functions.create_geom_points();
 
 DROP SCHEMA IF EXISTS demo CASCADE;
 CREATE SCHEMA demo;
 
 DROP TABLE IF EXISTS demo.demo_table CASCADE;
 CREATE TABLE demo.demo_table(
-  name varchar,
+  name varchar PRIMARY KEY,
   lab varchar,
   gradstudent bool,
   datetime timestamp without time zone,
@@ -104,7 +143,7 @@ COMMENT ON COLUMN demo.demo_table.datetime IS 'A random date and time without ti
 COMMENT ON COLUMN demo.demo_table.id_num IS 'A random integer as an example';
 COMMENT ON COLUMN demo.demo_table.random_val IS 'A random value to show how double precision works';
 COMMENT ON COLUMN demo.demo_table.sex IS 'Sex of individual';
-COMMENT ON COLUMN demo.demo_table.added_to_database IS 'Timestamp of when data was added to database'
+COMMENT ON COLUMN demo.demo_table.added_to_database IS 'Timestamp of when data was added to database';
 
 
 
